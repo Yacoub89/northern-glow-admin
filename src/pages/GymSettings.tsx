@@ -1,18 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 
-const TIMEZONES = [
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "America/Toronto",
-  "America/Vancouver",
-  "Europe/London",
-  "Europe/Paris",
-  "Australia/Sydney",
-];
+const ALL_TIMEZONES: string[] = (Intl as any).supportedValuesOf
+  ? (Intl as any).supportedValuesOf("timeZone")
+  : [
+      "America/New_York","America/Chicago","America/Denver","America/Los_Angeles",
+      "America/Toronto","America/Vancouver","Europe/London","Europe/Paris","Australia/Sydney",
+    ];
 
 const S = {
   h1: { fontSize: 24, fontWeight: 700, marginBottom: 28 },
@@ -29,8 +25,39 @@ const S = {
   },
   colorRow: { display: "flex", alignItems: "center", gap: 12 },
   colorSwatch: (color: string) => ({
-    width: 36, height: 36, borderRadius: 6, background: color, border: "2px solid #333", flexShrink: 0,
+    width: 36, height: 36, borderRadius: 6, background: color, border: "2px solid #333",
+    flexShrink: 0, cursor: "pointer", position: "relative" as const, overflow: "hidden",
   }),
+  colorNativeInput: {
+    position: "absolute" as const, inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%",
+  },
+  tzWrapper: { position: "relative" as const },
+  tzDropdown: {
+    position: "absolute" as const, top: "100%", left: 0, right: 0, zIndex: 100,
+    background: "#1e1e1e", border: "1px solid #444", borderRadius: 8, marginTop: 4,
+    maxHeight: 220, overflowY: "auto" as const, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+  },
+  tzOption: (active: boolean) => ({
+    padding: "9px 12px", fontSize: 13, cursor: "pointer",
+    background: active ? "#2a2a2a" : "transparent", color: active ? "#fff" : "#ccc",
+  }),
+  logoArea: {
+    display: "flex", alignItems: "center", gap: 16,
+  },
+  logoPreview: {
+    width: 72, height: 72, borderRadius: 10, border: "1px solid #333",
+    objectFit: "contain" as const, background: "#1e1e1e",
+  },
+  logoPlaceholder: {
+    width: 72, height: 72, borderRadius: 10, border: "1px dashed #444",
+    background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center",
+    color: "#555", fontSize: 11,
+  },
+  uploadBtn: {
+    padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 500,
+    cursor: "pointer", border: "1px solid #444", background: "#1e1e1e", color: "#ccc",
+  },
+  uploadHint: { fontSize: 11, color: "#555", marginTop: 4 },
   btn: {
     padding: "11px 24px", borderRadius: 8, fontWeight: 600, fontSize: 14,
     cursor: "pointer", border: "none", background: "#1BBFBF", color: "#000",
@@ -44,12 +71,14 @@ const S = {
 export default function GymSettings() {
   const gym = useQuery(api.gyms.getMyGym);
   const updateSettings = useMutation(api.gyms.updateSettings);
+  const generateLogoUploadUrl = useMutation(api.gyms.generateLogoUploadUrl);
 
   const [form, setForm] = useState({
     name: "",
     tagline: "",
     primaryColor: "#1BBFBF",
     timezone: "America/New_York",
+    logoStorageId: undefined as Id<"_storage"> | undefined,
     stripeUnlimitedMonthlyPriceId: "",
     stripeUnlimitedAnnualPriceId: "",
     stripeTwiceWeeklyMonthlyPriceId: "",
@@ -57,14 +86,38 @@ export default function GymSettings() {
   });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [tzSearch, setTzSearch] = useState("");
+  const [tzOpen, setTzOpen] = useState(false);
+  const tzRef = useRef<HTMLDivElement>(null);
+
+  const logoUrl = useQuery(
+    api.gyms.getLogoUrl,
+    form.logoStorageId ? { storageId: form.logoStorageId } : "skip"
+  );
+
+  const filteredTz = ALL_TIMEZONES.filter((tz) =>
+    tz.toLowerCase().includes(tzSearch.toLowerCase())
+  );
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (tzRef.current && !tzRef.current.contains(e.target as Node)) setTzOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   useEffect(() => {
     if (gym) {
+      setTzSearch(gym.timezone);
       setForm({
         name: gym.name,
         tagline: gym.tagline,
         primaryColor: gym.primaryColor,
         timezone: gym.timezone,
+        logoStorageId: gym.logoStorageId,
         stripeUnlimitedMonthlyPriceId: gym.stripeUnlimitedMonthlyPriceId ?? "",
         stripeUnlimitedAnnualPriceId: gym.stripeUnlimitedAnnualPriceId ?? "",
         stripeTwiceWeeklyMonthlyPriceId: gym.stripeTwiceWeeklyMonthlyPriceId ?? "",
@@ -72,6 +125,25 @@ export default function GymSettings() {
       });
     }
   }, [gym]);
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) {
+      alert("Logo must be under 1 MB.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploadUrl = await generateLogoUploadUrl();
+      const res = await fetch(uploadUrl, { method: "POST", body: file, headers: { "Content-Type": file.type } });
+      const { storageId } = await res.json() as { storageId: Id<"_storage"> };
+      setForm((f) => ({ ...f, logoStorageId: storageId }));
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +154,7 @@ export default function GymSettings() {
         tagline: form.tagline,
         primaryColor: form.primaryColor,
         timezone: form.timezone,
+        logoStorageId: form.logoStorageId,
         stripeUnlimitedMonthlyPriceId: form.stripeUnlimitedMonthlyPriceId || undefined,
         stripeUnlimitedAnnualPriceId: form.stripeUnlimitedAnnualPriceId || undefined,
         stripeTwiceWeeklyMonthlyPriceId: form.stripeTwiceWeeklyMonthlyPriceId || undefined,
@@ -105,6 +178,22 @@ export default function GymSettings() {
       <form style={S.form} onSubmit={handleSubmit}>
         {/* Branding */}
         <div style={S.group}>
+          <label style={S.label}>Logo</label>
+          <div style={S.logoArea}>
+            {logoUrl
+              ? <img src={logoUrl} alt="Gym logo" style={S.logoPreview} />
+              : <div style={S.logoPlaceholder}>No logo</div>
+            }
+            <div>
+              <button type="button" style={S.uploadBtn} disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+                {uploading ? "Uploading…" : logoUrl ? "Replace" : "Upload logo"}
+              </button>
+              <div style={S.uploadHint}>PNG or SVG · max 1 MB</div>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/png,image/svg+xml,image/jpeg" style={{ display: "none" }} onChange={handleLogoChange} />
+          </div>
+        </div>
+        <div style={S.group}>
           <label style={S.label}>Gym name</label>
           <input style={S.input} value={form.name} onChange={set("name")} required />
         </div>
@@ -115,17 +204,54 @@ export default function GymSettings() {
         <div style={S.group}>
           <label style={S.label}>Primary colour</label>
           <div style={S.colorRow}>
-            <div style={S.colorSwatch(form.primaryColor)} />
-            <input style={S.input} value={form.primaryColor} onChange={set("primaryColor")} placeholder="#1BBFBF" />
+            <div style={S.colorSwatch(form.primaryColor)} title="Pick a colour">
+              <input
+                type="color"
+                style={S.colorNativeInput}
+                value={form.primaryColor}
+                onChange={(e) => setForm((f) => ({ ...f, primaryColor: e.target.value }))}
+              />
+            </div>
+            <input
+              style={S.input}
+              value={form.primaryColor}
+              onChange={set("primaryColor")}
+              placeholder="#1BBFBF"
+              maxLength={7}
+            />
           </div>
         </div>
         <div style={S.group}>
           <label style={S.label}>Timezone</label>
-          <select style={S.select} value={form.timezone} onChange={set("timezone")}>
-            {TIMEZONES.map((tz) => (
-              <option key={tz} value={tz}>{tz}</option>
-            ))}
-          </select>
+          <div style={S.tzWrapper} ref={tzRef}>
+            <input
+              style={S.input}
+              value={tzSearch}
+              placeholder="Search timezone…"
+              onFocus={() => setTzOpen(true)}
+              onChange={(e) => {
+                setTzSearch(e.target.value);
+                setTzOpen(true);
+              }}
+            />
+            {tzOpen && filteredTz.length > 0 && (
+              <div style={S.tzDropdown}>
+                {filteredTz.map((tz) => (
+                  <div
+                    key={tz}
+                    style={S.tzOption(tz === form.timezone)}
+                    onMouseDown={() => {
+                      setForm((f) => ({ ...f, timezone: tz }));
+                      setTzSearch(tz);
+                      setTzOpen(false);
+                    }}
+                  >
+                    {tz}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Stripe */}
