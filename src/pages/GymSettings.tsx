@@ -79,6 +79,8 @@ export default function GymSettings() {
     primaryColor: "#1BBFBF",
     timezone: "America/New_York",
     logoStorageId: undefined as Id<"_storage"> | undefined,
+    appIconStorageId: undefined as Id<"_storage"> | undefined,
+    splashStorageId: undefined as Id<"_storage"> | undefined,
     stripeUnlimitedMonthlyPriceId: "",
     stripeUnlimitedAnnualPriceId: "",
     stripeTwiceWeeklyMonthlyPriceId: "",
@@ -87,7 +89,11 @@ export default function GymSettings() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingIcon, setUploadingIcon] = useState(false);
+  const [uploadingSplash, setUploadingSplash] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const appIconInputRef = useRef<HTMLInputElement>(null);
+  const splashInputRef = useRef<HTMLInputElement>(null);
   const [tzSearch, setTzSearch] = useState("");
   const [tzOpen, setTzOpen] = useState(false);
   const tzRef = useRef<HTMLDivElement>(null);
@@ -95,6 +101,14 @@ export default function GymSettings() {
   const logoUrl = useQuery(
     api.gyms.getLogoUrl,
     form.logoStorageId ? { storageId: form.logoStorageId } : "skip"
+  );
+  const appIconUrl = useQuery(
+    api.gyms.getLogoUrl,
+    form.appIconStorageId ? { storageId: form.appIconStorageId } : "skip"
+  );
+  const splashUrl = useQuery(
+    api.gyms.getLogoUrl,
+    form.splashStorageId ? { storageId: form.splashStorageId } : "skip"
   );
 
   const filteredTz = ALL_TIMEZONES.filter((tz) =>
@@ -118,6 +132,8 @@ export default function GymSettings() {
         primaryColor: gym.primaryColor,
         timezone: gym.timezone,
         logoStorageId: gym.logoStorageId,
+        appIconStorageId: gym.appIconStorageId,
+        splashStorageId: gym.splashStorageId,
         stripeUnlimitedMonthlyPriceId: gym.stripeUnlimitedMonthlyPriceId ?? "",
         stripeUnlimitedAnnualPriceId: gym.stripeUnlimitedAnnualPriceId ?? "",
         stripeTwiceWeeklyMonthlyPriceId: gym.stripeTwiceWeeklyMonthlyPriceId ?? "",
@@ -126,23 +142,46 @@ export default function GymSettings() {
     }
   }, [gym]);
 
-  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 1024 * 1024) {
-      alert("Logo must be under 1 MB.");
+  const uploadImage = async (
+    file: File,
+    maxBytes: number,
+    label: string,
+    setLoading: (v: boolean) => void,
+    onSuccess: (id: Id<"_storage">) => void,
+    inputEl: HTMLInputElement,
+  ) => {
+    if (file.size > maxBytes) {
+      alert(`${label} must be under ${maxBytes / 1024 / 1024} MB.`);
       return;
     }
-    setUploading(true);
+    setLoading(true);
     try {
       const uploadUrl = await generateLogoUploadUrl();
       const res = await fetch(uploadUrl, { method: "POST", body: file, headers: { "Content-Type": file.type } });
       const { storageId } = await res.json() as { storageId: Id<"_storage"> };
-      setForm((f) => ({ ...f, logoStorageId: storageId }));
+      onSuccess(storageId);
     } finally {
-      setUploading(false);
-      e.target.value = "";
+      setLoading(false);
+      inputEl.value = "";
     }
+  };
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadImage(file, 1024 * 1024, "Logo", setUploading, (id) => setForm((f) => ({ ...f, logoStorageId: id })), e.target);
+  };
+
+  const handleAppIconChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadImage(file, 2 * 1024 * 1024, "App icon", setUploadingIcon, (id) => setForm((f) => ({ ...f, appIconStorageId: id })), e.target);
+  };
+
+  const handleSplashChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadImage(file, 5 * 1024 * 1024, "Splash image", setUploadingSplash, (id) => setForm((f) => ({ ...f, splashStorageId: id })), e.target);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -155,6 +194,8 @@ export default function GymSettings() {
         primaryColor: form.primaryColor,
         timezone: form.timezone,
         logoStorageId: form.logoStorageId,
+        appIconStorageId: form.appIconStorageId,
+        splashStorageId: form.splashStorageId,
         stripeUnlimitedMonthlyPriceId: form.stripeUnlimitedMonthlyPriceId || undefined,
         stripeUnlimitedAnnualPriceId: form.stripeUnlimitedAnnualPriceId || undefined,
         stripeTwiceWeeklyMonthlyPriceId: form.stripeTwiceWeeklyMonthlyPriceId || undefined,
@@ -251,6 +292,50 @@ export default function GymSettings() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Mobile App Images */}
+        <div style={S.section}>
+          <div style={S.sectionTitle}>Mobile app images</div>
+          <div style={S.sectionSub}>
+            Used to brand the iOS and Android apps. Icon should be 1024×1024 PNG. Splash should be 2048×2048 PNG.
+          </div>
+          <div style={{ display: "flex", gap: 32, flexWrap: "wrap" as const }}>
+            {/* App Icon */}
+            <div>
+              <div style={{ ...S.label, marginBottom: 10 }}>App icon</div>
+              <div style={S.logoArea}>
+                {appIconUrl
+                  ? <img src={appIconUrl} alt="App icon" style={{ ...S.logoPreview, borderRadius: 16 }} />
+                  : <div style={S.logoPlaceholder}>No icon</div>
+                }
+                <div>
+                  <button type="button" style={S.uploadBtn} disabled={uploadingIcon} onClick={() => appIconInputRef.current?.click()}>
+                    {uploadingIcon ? "Uploading…" : appIconUrl ? "Replace" : "Upload icon"}
+                  </button>
+                  <div style={S.uploadHint}>PNG · 1024×1024 · max 2 MB</div>
+                </div>
+                <input ref={appIconInputRef} type="file" accept="image/png" style={{ display: "none" }} onChange={handleAppIconChange} />
+              </div>
+            </div>
+            {/* Splash */}
+            <div>
+              <div style={{ ...S.label, marginBottom: 10 }}>Splash screen</div>
+              <div style={S.logoArea}>
+                {splashUrl
+                  ? <img src={splashUrl} alt="Splash screen" style={{ ...S.logoPreview, width: 120, height: 72, borderRadius: 6 }} />
+                  : <div style={{ ...S.logoPlaceholder, width: 120, height: 72, borderRadius: 6 }}>No splash</div>
+                }
+                <div>
+                  <button type="button" style={S.uploadBtn} disabled={uploadingSplash} onClick={() => splashInputRef.current?.click()}>
+                    {uploadingSplash ? "Uploading…" : splashUrl ? "Replace" : "Upload splash"}
+                  </button>
+                  <div style={S.uploadHint}>PNG · 2048×2048 · max 5 MB</div>
+                </div>
+                <input ref={splashInputRef} type="file" accept="image/png" style={{ display: "none" }} onChange={handleSplashChange} />
+              </div>
+            </div>
           </div>
         </div>
 
