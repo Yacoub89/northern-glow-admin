@@ -3,7 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
-const NAV = [
+const GYM_NAV = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/gym/settings", label: "Gym Settings" },
   { to: "/gym/invites", label: "Invites" },
@@ -55,6 +55,7 @@ export default function Layout() {
   const { signOut } = useAuthActions();
   const navigate = useNavigate();
   const gym = useQuery(api.gyms.getMyGym);
+  const isAdmin = useQuery(api.users.isSuperAdmin);
 
   return (
     <div style={S.shell}>
@@ -64,11 +65,21 @@ export default function Layout() {
           <div style={S.brandSub}>Admin Portal</div>
         </div>
         <nav style={S.nav}>
-          {NAV.map(({ to, label }) => (
+          {GYM_NAV.map(({ to, label }) => (
             <NavLink key={to} to={to} style={({ isActive }) => S.link(isActive)}>
               {label}
             </NavLink>
           ))}
+          {isAdmin && (
+            <NavLink to="/super" style={({ isActive }) => ({
+              ...S.link(isActive),
+              marginTop: 16,
+              borderTop: "1px solid #252525",
+              paddingTop: 16,
+            })}>
+              Super Admin
+            </NavLink>
+          )}
         </nav>
         <button
           style={S.signOut}
