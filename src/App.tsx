@@ -3,6 +3,7 @@ import { useConvexAuth } from "convex/react";
 import { useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import Login from "./pages/Login";
+import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import GymSettings from "./pages/GymSettings";
 import Invites from "./pages/Invites";
@@ -49,24 +50,29 @@ export function Spinner() {
 export default function App() {
   return (
     <Routes>
+      {/* Public routes */}
+      <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+
+      {/* Protected app routes — shared Layout shell */}
       <Route
-        path="/"
         element={
           <AuthGuard>
             <Layout />
           </AuthGuard>
         }
       >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<GymGuard><Dashboard /></GymGuard>} />
-        <Route path="gym/settings" element={<GymGuard><GymSettings /></GymGuard>} />
-        <Route path="gym/invites" element={<GymGuard><Invites /></GymGuard>} />
-        <Route path="gym/members" element={<GymGuard><Members /></GymGuard>} />
-        <Route path="gym/create" element={<GymCreate />} />
-        <Route path="accept-invite" element={<AcceptInvite />} />
-        <Route path="super" element={<SuperAdminGuard><SuperAdmin /></SuperAdminGuard>} />
+        <Route path="/dashboard" element={<GymGuard><Dashboard /></GymGuard>} />
+        <Route path="/gym/settings" element={<GymGuard><GymSettings /></GymGuard>} />
+        <Route path="/gym/invites" element={<GymGuard><Invites /></GymGuard>} />
+        <Route path="/gym/members" element={<GymGuard><Members /></GymGuard>} />
+        <Route path="/gym/create" element={<GymCreate />} />
+        <Route path="/accept-invite" element={<AcceptInvite />} />
+        <Route path="/super" element={<SuperAdminGuard><SuperAdmin /></SuperAdminGuard>} />
       </Route>
+
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
